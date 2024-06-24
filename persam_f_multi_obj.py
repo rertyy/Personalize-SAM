@@ -21,7 +21,8 @@ def get_arguments():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--data', type=str, default='./data')
-    parser.add_argument('--outdir', type=str, default='persam_f')
+    parser.add_argument('--test', type=str, default='./data_test')
+    parser.add_argument('--outdir', type=str, default='persam_f_multi')
     parser.add_argument('--ckpt', type=str, default='./sam_vit_h_4b8939.pth')
     parser.add_argument('--sam_type', type=str, default='vit_h')
 
@@ -46,6 +47,7 @@ def main():
     images_path = args.data + '/Images/'
     masks_path = args.data + '/Annotations/'
     output_path = './outputs/' + args.outdir
+    test_dir = args.test
 
     
 
@@ -53,10 +55,17 @@ def main():
         os.mkdir('./outputs/')
     
     for obj_name in os.listdir(images_path):
-        persam_f(args, obj_name, images_path, masks_path, output_path)
+        persam_f(args, obj_name, images_path, masks_path, output_path, test_dir)
 
 
-def persam_f(args, obj_name, images_path, masks_path, output_path):
+def persam_f(args, obj_name, images_path, masks_path, output_path, test_dir):
+    if obj_name == '.DS_Store':
+        print("Ignore DS_Store")
+        return
+    if obj_name == ".ipynb_checkpoints":
+        print("Ignore ipynb Checkpoints")
+        return
+
     print("======> Load SAM" )
     if args.sam_type == 'vit_h':
         sam_type, sam_ckpt = 'vit_h', 'sam_vit_h_4b8939.pth'
@@ -73,15 +82,17 @@ def persam_f(args, obj_name, images_path, masks_path, output_path):
     predictor = SamPredictor(sam)
 
     print("\n------------> Segment " + obj_name)
+    test_images_path = os.path.join(test_dir, obj_name)
+
     for i in tqdm(range(args.train_epoch_outside)):
         output_path = os.path.join(output_path, obj_name)
         os.makedirs(output_path, exist_ok=True)
         training_size = int(len(os.listdir(os.path.join(images_path, obj_name)))  * args.training_percentage)
+        print("Training size: ", training_size)
         for ref_idx in range(training_size):
             # Path preparation
             ref_image_path = os.path.join(images_path, obj_name, '{:02}.jpg'.format(ref_idx))
             ref_mask_path = os.path.join(masks_path, obj_name, '{:02}.png'.format(ref_idx))
-            test_images_path = os.path.join(images_path, obj_name)
 
             # Load images and masks
             ref_image = cv2.imread(ref_image_path)
@@ -163,7 +174,7 @@ def persam_f(args, obj_name, images_path, masks_path, output_path):
             weights = torch.cat((1 - mask_weights.weights.sum(0).unsqueeze(0), mask_weights.weights), dim=0)
             weights_np = weights.detach().cpu().numpy()
             # print('======> Mask weights:\n', weights_np)
-        print('LR: {:.6f}, Dice_Loss: {:.4f}, Focal_Loss: {:.4f}'.format(current_lr, dice_loss.item(), focal_loss.item()))
+            print('LR: {:.6f}, Dice_Loss: {:.4f}, Focal_Loss: {:.4f}'.format(current_lr, dice_loss.item(), focal_loss.item()))
 
     print('======> Start Testing')
     for test_idx in tqdm(range(len(os.listdir(test_images_path)))):
@@ -171,6 +182,7 @@ def persam_f(args, obj_name, images_path, masks_path, output_path):
         # Load test image
         test_idx = '%02d' % test_idx
         test_image_path = test_images_path + '/' + test_idx + '.jpg'
+        print("Reading from ", test_image_path)
         test_image = cv2.imread(test_image_path)
         test_image = cv2.cvtColor(test_image, cv2.COLOR_BGR2RGB)
         test_image_original = cv2.imread(test_image_path)
@@ -264,6 +276,9 @@ def persam_f(args, obj_name, images_path, masks_path, output_path):
         
         plt.imshow(test_image_original)
         vis_mask_output_path = os.path.join(output_path, f'vis_mask_{test_idx}_objects:{len(history_masks)}.jpg')
+        with open(vis_mask_output_path, 'wb') as outfile:
+            plt.savefig(outfile, format='jpg')
+        vis_mask_output_path = os.path.join(output_path, f'vis_mask_{test_idx}.jpg')
         with open(vis_mask_output_path, 'wb') as outfile:
             plt.savefig(outfile, format='jpg')
 
